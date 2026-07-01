@@ -1,6 +1,6 @@
-![GitHub stars](https://img.shields.io/github/stars/Eikovo/MaMIDI?style=social)
-![GitHub release](https://img.shields.io/github/v/release/Eikovo/MaMIDI)
-![GitHub downloads](https://img.shields.io/github/downloads/Eikovo/MaMIDI/latest/total)
+![GitHub stars](https://img.shields.io/github/stars/Eiko-Eira/MaMIDI?style=social)
+![GitHub release](https://img.shields.io/github/v/release/Eiko-Eira/MaMIDI)
+![GitHub downloads](https://img.shields.io/github/downloads/Eiko-Eira/MaMIDI/latest/total)
 
 # MaMIDI - A Manual-Advance Human-Like MIDI Player
 Made By Eikovo
