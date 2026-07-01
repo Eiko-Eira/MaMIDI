@@ -23,7 +23,7 @@ I plan to make the UI better, add a AutoPlayer with BPM bar.
 I also plan to add notes per second features.
 
 # Contacts & Credits
-Thank you to Crimsxn K1ra for the original script and AstroidLord for the modified script.
+Thank you to Crimsxn K1ra for the original script and AsteroidLord for the modified script.
 
 **Contacts**
 Discord: Eikovo
