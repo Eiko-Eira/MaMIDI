@@ -1,5 +1,4 @@
 ![GitHub stars](https://img.shields.io/github/stars/Eiko-Eira/MaMIDI?style=social)
-![Views](https://api.visitorbadge.io/api/VisitorHit?user=Eiko-Eira&repo=MaMIDI&label=Views)
 ![GitHub downloads](https://img.shields.io/github/downloads/Eiko-Eira/MaMIDI/latest/total)
 
 # MaMIDI - A Manual-Advance Human-Like MIDI Player
