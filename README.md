@@ -31,4 +31,5 @@ Email: bdhdbssh53@gmail.com
 
 # Disclaimer
 I will not be held liable for any and all consequences faced by the users of this script. By downloading the script, you agree that I will not be held liable for anything. **USE AT YOUR OWN RISK**.
+
 If you are scared to use .exe file you can download the ahk file directly. please read why.md for more infomation
