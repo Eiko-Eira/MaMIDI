@@ -1,5 +1,6 @@
 #Requires AutoHotkey v2.0
 #SingleInstance Force
+#UseHook True ; Prevents the script from accidentally triggering its own hotkeys
 
 SetWorkingDir A_ScriptDir
 
@@ -7,36 +8,56 @@ SetWorkingDir A_ScriptDir
 global Sheets := []
 global PianoMusic := ""
 global CurrentPos := 1
-global ActiveKeys := Map() ; Tracks each specific key and its unique release timer
+global ActiveKeys := Map() 
+global NoteTimestamps := [] 
+global KeyStates := Map()  ; Strictly tracks if a key is currently held down
 
 ; GUI Control References
-global DDL, RemainingNotesBox, ProgBar
+global DDL, RemainingNotesBox, ProgBar, NPSText, ForceWhiteKeysCheck, RestartBtn
 global ChordDelayInput, HoldMinInput, HoldMaxInput
 
 ; --- GUI Setup ---
-MyGui := Gui("+AlwaysOnTop", "Pro AutoPiano")
+MyGui := Gui("+AlwaysOnTop", "MaMIDI Player")
 MyGui.OnEvent("Close", (*) => ExitApp())
 MyGui.BackColor := "FFFFFF"
 MyGui.SetFont("s10", "Calibri")
 
 MyGui.AddText("w550 Center c000000", "----------------------------------------SELECT SHEET-----------------------------------------")
-DDL := MyGui.AddDropDownList("w550")
+
+; Dropdown and Refresh Button
+DDL := MyGui.AddDropDownList("xm w460")
 DDL.OnEvent("Change", LoadSheet)
+RefreshBtn := MyGui.AddButton("x+10 yp-1 w80 h26", "Refresh")
+RefreshBtn.OnEvent("Click", RefreshFolder)
 
-MyGui.AddText("w550 Center c000000", "-----------------------------------CURRENT SHEET / NEXT NOTES-----------------------------------")
+MyGui.AddText("xm w550 Center c000000", "-----------------------------------CURRENT SHEET / NEXT NOTES-----------------------------------")
 
-; The Remaining Active Sheet Box (Expanded to full width since the next note box is removed)
-MyGui.SetFont("s12", "Calibri") 
+; Tiny instruction for the click-to-skip feature
+MyGui.SetFont("s9 Italic", "Calibri")
+MyGui.AddText("xm y+2 w550 Center c555555", "(Click any note inside the box below to instantly skip to it)")
+
+MyGui.SetFont("s12 Norm", "Calibri") 
 RemainingNotesBox := MyGui.AddEdit("xm y+5 w550 h120 ReadOnly BackgroundFFFFFF c000000") 
-
-; Reset font for the rest of the GUI
 MyGui.SetFont("s10", "Calibri") 
 
 RestartBtn := MyGui.AddButton("xm y+10 w140 h30", "Restart Song")
 RestartBtn.OnEvent("Click", RestartSong)
 
-MyGui.AddText("xm w550 Center c000000", "----------------------------------------PROGRESS-----------------------------------------")
+MyGui.AddText("xm w550 Center c000000", "----------------------------------------PROGRESS & STATS-----------------------------------------")
 ProgBar := MyGui.AddProgress("w550 h25 Range0-100", 0)
+
+; NPS Display and Force White Keys Toggle
+MyGui.AddText("xm y+10 w100 c000000", "Active NPS:")
+
+MyGui.SetFont("Bold")
+NPSText := MyGui.AddText("x+5 yp w50 c000000", "0")
+MyGui.SetFont("Norm")
+
+ForceWhiteKeysCheck := MyGui.AddCheckbox("x+50 yp c000000", "Force White Keys (No Black Keys)")
+ForceWhiteKeysCheck.Value := 0
+ForceWhiteKeysCheck.OnEvent("Click", (*) => UpdateDisplay())
+
+SetTimer(UpdateNPS, 100)
 
 ; --- Settings Section ---
 MyGui.AddText("xm w550 Center c000000", "----------------------------------------SETTINGS-----------------------------------------")
@@ -50,67 +71,127 @@ HoldMinInput := MyGui.AddEdit("x+10 yp-3 w60 Number", "300")
 MyGui.AddText("x+20 yp+3 w60 c000000", "Max (ms):")
 HoldMaxInput := MyGui.AddEdit("x+10 yp-3 w60 Number", "700")
 
-; Reset column position to left margin for bottom texts
-MyGui.AddText("xm y+15 c000000", "Controls: Press = or [ or ] to play next note")
-MyGui.AddText("xm c000000", "Credits: Crimsxn K1ra, Modified by Eikovo")
-MyGui.AddText("xm c000000", "Discord: Eikovo")
+MyGui.AddText("xm y+15 c000000", "Controls: Press = or - to advance to the next note")
+MyGui.AddText("xm y+10 c000000", "Credits: Crimsxn K1ra / AstroidLord")
+MyGui.AddText("xm c000000", "Developer: Eikovo")
 
-; --- Populate File Dropdown (Relative Path Search) ---
-SheetNames := []
-TargetFolder := A_ScriptDir "\sheets"
+; Initialize everything on startup
+RefreshFolder()
 
-; Check if folder exists next to the EXE/AHK file. If not, create it.
-if !DirExist(TargetFolder) {
-    DirCreate(TargetFolder)
-    MsgBox("A 'sheets' folder has been created in the same directory as this program.`n`nPlease put your .txt sheet files inside it and restart the program.", "Folder Created")
-} else {
-    Loop Files, TargetFolder "\*.txt", "R"
-    {
-        ; Extract the path relative to the "sheets" folder
+MyGui.Show("AutoSize Center")
+OnMessage(0x0202, ClickToSkip)
+
+
+; --- Logic Functions ---
+
+; Fast forwards the tracker past any spaces or visual pipes so they aren't played
+AdvancePastSpaces() {
+    global CurrentPos, PianoMusic
+    TotalLen := StrLen(PianoMusic)
+    while (CurrentPos <= TotalLen && (SubStr(PianoMusic, CurrentPos, 1) == " " || SubStr(PianoMusic, CurrentPos, 1) == "|")) {
+        CurrentPos++
+    }
+}
+
+; Scans the sheets folder and updates the DropDownList dynamically
+RefreshFolder(*) {
+    global Sheets, SheetNames, DDL
+    TargetFolder := A_ScriptDir "\sheets"
+    
+    Sheets := []
+    SheetNames := []
+    DDL.Delete() ; Clear current items
+    
+    if !DirExist(TargetFolder) {
+        DirCreate(TargetFolder)
+        MsgBox("A 'sheets' folder has been created.`nPut your .txt sheets inside and click Refresh.", "Folder Created")
+        return
+    }
+    
+    Loop Files, TargetFolder "\*.txt", "R" {
         RelativePath := StrReplace(A_LoopFilePath, TargetFolder "\", "")
-        
-        ; Remove the ".txt" extension for a cleaner display name
         DisplayName := RegExReplace(RelativePath, "\.txt$", "")
-        
-        ; Replace folder slashes with " > " for subfolders (e.g., "Anime > SongName")
         DisplayName := StrReplace(DisplayName, "\", " > ")
-        
         Sheets.Push({display: DisplayName, path: A_LoopFilePath})
         SheetNames.Push(DisplayName)
     }
 
     if (SheetNames.Length > 0) {
         DDL.Add(SheetNames)
-        DDL.Choose(1) ; Select the first item by default
-        LoadSheet(DDL) ; Automatically load the first sheet on startup
+        DDL.Choose(1)
+        LoadSheet(DDL)
     } else {
-        MsgBox("No .txt files were found inside the 'sheets' folder.`n`nPath: " TargetFolder, "No Sheets Found")
+        global PianoMusic := ""
+        UpdateDisplay()
     }
 }
 
-MyGui.Show("AutoSize Center")
+; Runs whenever a mouse click is released anywhere in the script
+ClickToSkip(wParam, lParam, msg, hwnd) {
+    global RemainingNotesBox, CurrentPos, PianoMusic, RestartBtn
+    
+    if (PianoMusic != "" && hwnd == RemainingNotesBox.Hwnd) {
+        pos := SendMessage(0x00B0, 0, 0, RemainingNotesBox.Hwnd)
+        caretPos := pos & 0xFFFF 
+        
+        if (caretPos > 0) {
+            CurrentPos += caretPos
+            TotalLen := StrLen(PianoMusic)
+            if (CurrentPos > TotalLen) {
+                CurrentPos := TotalLen
+            }
+            
+            ReleaseAllKeys()
+            AdvancePastSpaces()
+            UpdateDisplay()
+            try RestartBtn.Focus()
+        }
+    }
+}
 
+PlayNextNoteAction(ThisHotkey) {
+    global KeyStates
+    
+    ; Strip the "$" used in the hotkey definition for checking
+    baseKey := StrReplace(ThisHotkey, "$", "")
+    
+    ; True Anti-Spam: If the key is already marked as down, ignore Windows auto-repeat completely.
+    if (KeyStates.Has(baseKey) && KeyStates[baseKey]) {
+        return 
+    }
+    
+    ; Mark the key as held down
+    KeyStates[baseKey] := true
+    PlayNextNote()
+}
 
-; --- Logic Functions ---
+ResetKeyHold(ThisHotkey) {
+    global KeyStates
+    
+    ; Strip the "$" and " Up" from the hotkey name to find the base key
+    baseKey := StrReplace(ThisHotkey, "$", "")
+    baseKey := StrReplace(baseKey, " Up", "")
+    
+    KeyStates[baseKey] := false
+}
 
 LoadSheet(Ctrl, *) {
     global PianoMusic, CurrentPos, Sheets
     SelectedDisplay := Ctrl.Text
-    if (SelectedDisplay == "")
+    if (SelectedDisplay == "") {
         return
+    }
 
     for item in Sheets {
         if (item.display == SelectedDisplay) {
-            
-            ; Read the exact text inside the text file
             RawContents := FileRead(item.path)
             
-            ; Clean all whitespace, linebreaks, backslashes, AND the | symbol out of the raw text for playing
-            PianoMusic := RegExReplace(RawContents, "[\r\n\s\\|]")
+            ; Strips Enters, Tabs, and slashes, but KEEPS Spaces and |
+            PianoMusic := RegExReplace(RawContents, "[\r\n\t\\]")
             
-            ; Reset states
             ReleaseAllKeys()
             CurrentPos := 1
+            AdvancePastSpaces()
             break
         }
     }
@@ -121,11 +202,20 @@ RestartSong(*) {
     global CurrentPos
     ReleaseAllKeys()
     CurrentPos := 1
+    AdvancePastSpaces()
     UpdateDisplay()
 }
 
+MapToWhiteKey(char) {
+    static SymbolMap := Map("!", "1", "@", "2", "#", "3", "$", "4", "%", "5", "^", "6", "&", "7", "*", "8", "(", "9", ")", "0")
+    if SymbolMap.Has(char) {
+        return SymbolMap[char]
+    }
+    return StrLower(char)
+}
+
 UpdateDisplay() {
-    global PianoMusic, CurrentPos, RemainingNotesBox, ProgBar
+    global PianoMusic, CurrentPos, RemainingNotesBox, ProgBar, ForceWhiteKeysCheck
 
     if (PianoMusic == "") {
         RemainingNotesBox.Value := ""
@@ -135,83 +225,108 @@ UpdateDisplay() {
 
     TotalLen := StrLen(PianoMusic)
     if (TotalLen == 0) {
-        RemainingNotesBox.Value := ""
-        ProgBar.Value := 0
         return
     }
 
-    ; Grab a large chunk of upcoming notes (300 characters) starting from the current position
     RemainingNextNotes := SubStr(PianoMusic, CurrentPos, 300)
 
+    if (ForceWhiteKeysCheck.Value) {
+        ConvertedNotes := ""
+        Loop StrLen(RemainingNextNotes) {
+            char := SubStr(RemainingNextNotes, A_Index, 1)
+            if (char == "[" || char == "]") {
+                ConvertedNotes .= char
+            } else {
+                ConvertedNotes .= MapToWhiteKey(char)
+            }
+        }
+        RemainingNextNotes := ConvertedNotes
+    }
+
     RemainingNotesBox.Value := RemainingNextNotes
-    
     ProgBar.Value := ((CurrentPos - 1) / TotalLen) * 100
 }
 
-; Immediately cancels all active holds and lifts the keys
+UpdateNPS() {
+    global NoteTimestamps, NPSText
+    CurrentTime := A_TickCount
+    while (NoteTimestamps.Length > 0 && CurrentTime - NoteTimestamps[1] > 1000) {
+        NoteTimestamps.RemoveAt(1)
+    }
+    NPSText.Value := NoteTimestamps.Length
+}
+
 ReleaseAllKeys() {
     global ActiveKeys
     for keyToRelease, TimerFunc in ActiveKeys {
-        SetTimer(TimerFunc, 0)  ; Stop the scheduled timer
+        SetTimer(TimerFunc, 0)
         try SendEvent("{" keyToRelease " Up}")
     }
     ActiveKeys.Clear()
 }
 
-; Function assigned to release a specific single key naturally over time
 ReleaseSingleKey(keyToRelease) {
     global ActiveKeys
     try SendEvent("{" keyToRelease " Up}")
-    
-    ; Remove it from our tracking map once it's lifted
-    if ActiveKeys.Has(keyToRelease) {
+    if (ActiveKeys.Has(keyToRelease)) {
         ActiveKeys.Delete(keyToRelease)
     }
 }
 
 PlayNextNote() {
-    global PianoMusic, CurrentPos, ActiveKeys
-    global ChordDelayInput, HoldMinInput, HoldMaxInput
+    global PianoMusic, CurrentPos, ActiveKeys, NoteTimestamps
+    global ChordDelayInput, HoldMinInput, HoldMaxInput, ForceWhiteKeysCheck
     
-    if (PianoMusic == "")
+    if (PianoMusic == "") {
         return
+    }
 
-    ; Safely read dynamic values on-the-fly (with fallbacks if inputs are left blank)
     currentChordDelay := IsInteger(ChordDelayInput.Value) ? Integer(ChordDelayInput.Value) : 30
     currentMinHold    := IsInteger(HoldMinInput.Value) ? Integer(HoldMinInput.Value) : 300
     currentMaxHold    := IsInteger(HoldMaxInput.Value) ? Integer(HoldMaxInput.Value) : 700
 
-    ; Swap safety check to prevent Random() from failing if Min is larger than Max
     if (currentMinHold > currentMaxHold) {
         temp := currentMinHold
         currentMinHold := currentMaxHold
         currentMaxHold := temp
     }
 
+    ; Skip any spaces right before we process the note
+    AdvancePastSpaces()
+
     TotalLen := StrLen(PianoMusic)
     if (CurrentPos > TotalLen) {
         CurrentPos := 1 
+        AdvancePastSpaces()
     }
 
     if (CurrentPos <= TotalLen) {
-        
-        ; Match one note "a" or one chord "[abc]"
         if (RegExMatch(PianoMusic, "(\[[^\]]*\]|.)", &Match, CurrentPos)) {
-            
-            ; 1. Lift up any keys from the PREVIOUS keystroke before striking the new ones
             ReleaseAllKeys()
-
             MatchedStr := Match[1]
             CurrentPos += StrLen(MatchedStr)
+            
+            ; Instantly skip trailing spaces so the GUI updates nicely to the exact next real note
+            AdvancePastSpaces()
 
-            ; Remove brackets to get raw chord letters
             Keys := Trim(MatchedStr, "[]")
+            
+            ; Cleanup just in case a user put spaces or pipes inside a chord bracket [a | b c]
+            Keys := StrReplace(Keys, " ", "")
+            Keys := StrReplace(Keys, "|", "")
 
-            ; Convert the chord to an array of single characters
+            if (ForceWhiteKeysCheck.Value) {
+                ConvertedKeys := ""
+                Loop StrLen(Keys) {
+                    char := SubStr(Keys, A_Index, 1)
+                    ConvertedKeys .= MapToWhiteKey(char)
+                }
+                Keys := ConvertedKeys
+            }
+
             KeyArray := StrSplit(Keys)
 
-            ; Humanizer: If it's a chord, there's a 40% chance we slightly shuffle the roll order.
-            if (KeyArray.Length > 1 && Random(1, 10) <= 4) {
+            if (KeyArray.Length > 1) {
                 Loop KeyArray.Length - 1 {
                     i := KeyArray.Length - A_Index + 1
                     j := Random(1, i)
@@ -221,53 +336,54 @@ PlayNextNote() {
                 }
             }
 
-            ; Force AutoHotkey to type Down/Up commands instantly
             SetKeyDelay(-1, 0)
 
-            ; 2. Press new keys DOWN individually and set a UNIQUE release timer for each
-            for index, keyToPress in KeyArray
-            {
+            for index, keyToPress in KeyArray {
+                ; Skip execution if the key somehow ends up blank
+                if (keyToPress == "") {
+                    continue
+                }
+
                 try SendEvent("{" keyToPress " Down}")
                 
-                ; Generate a completely random hold duration just for THIS specific key
-                HoldDuration := Random(currentMinHold, currentMaxHold)
+                ; Add this specific keystroke to our active NPS tracking
+                NoteTimestamps.Push(A_TickCount)
                 
-                ; Bind this specific key to the release function so it remembers which one to lift
+                HoldDuration := Random(currentMinHold, currentMaxHold)
                 BoundReleaseFunc := ReleaseSingleKey.Bind(keyToPress)
                 ActiveKeys[keyToPress] := BoundReleaseFunc
-                
-                ; Start the timer for this single key
                 SetTimer(BoundReleaseFunc, -HoldDuration)
                 
-                ; Add a slightly randomized delay between keys in a chord
                 if (KeyArray.Length > 1 && index < KeyArray.Length) {
-                    
-                    ; Calculate variance: -15% up to +75% based on our dynamic ChordDelay setting
                     MinDelay := Round(currentChordDelay * 0.85)
                     MaxDelay := Round(currentChordDelay * 1.75)
                     
-                    ; Fallbacks to prevent calculation errors under extreme user settings
-                    if (MinDelay < 1)
+                    if (MinDelay < 1) {
                         MinDelay := 1
-                    if (MaxDelay < MinDelay)
+                    }
+                    if (MaxDelay < MinDelay) {
                         MaxDelay := MinDelay
-
-                    ActualDelay := Random(MinDelay, MaxDelay)
-                    Sleep(ActualDelay)
+                    }
+                    Sleep(Random(MinDelay, MaxDelay))
                 }
             }
         }
     }
-
     UpdateDisplay()
 }
 
-; --- Hotkeys ---
-; The #HotIf prevents these hotkeys from running when the piano GUI is active.
+; --- Hardcoded Hotkeys ---
+; The #HotIf prevents these hotkeys from running when the piano GUI is actively clicked/focused.
 #HotIf !WinActive("ahk_id " MyGui.Hwnd)
+
 $=::
-$[::
-$]:: {
-    PlayNextNote()
+$-:: {
+    PlayNextNoteAction(A_ThisHotkey)
 }
+
+$= Up::
+$- Up:: {
+    ResetKeyHold(A_ThisHotkey)
+}
+
 #HotIf
