@@ -1,6 +1,7 @@
 # MaMIDI - A Manual-Advance Human-Like MIDI Player
 Made By Eikovo
 
+# Current Version: v1.1.0
 # About
 This is an AutoHotkey script designed for Virtual pianos to mimic humans and the micro-delays.
 The purpose of the script is to give users the ability to manually control with "=" to play next notes instead of relying on auto and BPM which usually mess up songs. It also emulates micro-delays in Chords to show a more human-like playing.
@@ -20,7 +21,6 @@ The script contains the ability to change the micro-delays of chords, the max an
 The script always stays above all applications to not disappear but can be hidden if needed.
 
 I plan to make the UI better, add a AutoPlayer with BPM bar.
-I also plan to add notes per second features.
 
 # Contacts & Credits
 Thank you to Crimsxn K1ra for the original script and AsteroidLord for the modified script.
