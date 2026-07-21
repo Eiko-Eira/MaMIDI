@@ -1,7 +1,7 @@
-# MaMIDI - A Manual-Advance Human-Like MIDI Player
+# MaMIDI - A MIDI Human-Like MIDI Player
 Made By Eikovo
 
-# Current Version: v1.1.0
+# Current Version: v2.0.1
 # About
 This is an AutoHotkey script designed for Virtual pianos to mimic humans and the micro-delays.
 The purpose of the script is to give users the ability to manually control with "=" to play next notes instead of relying on auto and BPM which usually mess up songs. It also emulates micro-delays in Chords to show a more human-like playing.
@@ -13,6 +13,9 @@ You have to put the QWERTY piano sheets in the "Sheets" folder created by the sc
 You can find QWERTY scripts on these trusted sites: https://virtualpiano.net/ https://robloxpianosheet.com/
 Just copy and paste the sheets into the `.txt` files.
 
+WE HAVE AUTO NOW.
+MaMIDI can now auto with .mid files. witha  shit ton fo features
+
 # Features
 - The script contains the ability to change the micro-delays of chords, the max and min hold down time of notes, and the ability to use any sheet.
 - The script always stays above all applications to not disappear but can be hidden if needed.
@@ -23,6 +26,7 @@ Just copy and paste the sheets into the `.txt` files.
 - You can now click a note in current sheets to skip to them
 - A Notes-Per-Second counter
 - A toggle to force white keys
+- AND MANY MORE
 
 # Contacts & Credits
 Thank you to Crimsxn K1ra for the original script and AsteroiddLord for the modified script.
